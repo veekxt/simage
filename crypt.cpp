@@ -18,7 +18,7 @@ int aesgcm256_crypt(unsigned char src[], int src_len, unsigned char des[], int &
         return -1;
     }
     des_len = des_len_t;
-
+    return 0;
 }
 
 int aesgcm256_decrypt(unsigned char src[], int src_len, unsigned char des[], int &des_len, unsigned char key[],
@@ -34,4 +34,5 @@ int aesgcm256_decrypt(unsigned char src[], int src_len, unsigned char des[], int
         return -1;
     }
     des_len = des_len_t;
+    return 0;
 }

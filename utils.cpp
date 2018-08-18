@@ -3,11 +3,10 @@
 #include <sys/socket.h>
 #include "utils.h"
 
-uint64_t get_timestamp(void)
-{
+uint64_t get_timestamp(void) {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-    return (uint64_t)tv.tv_sec;
+    return (uint64_t) tv.tv_sec;
 }
 
 void pbytes(byte bs[], int len) {
@@ -15,40 +14,43 @@ void pbytes(byte bs[], int len) {
 
         cout << std::hex << (int) bs[i] << " ";
     }
-    cout <<std::dec<< endl;
+    cout << std::dec << endl;
 }
 
 void pbytess(byte bs[], int len) {
     for (int i = 0; i < len; i++) {
         cout << (char) bs[i];
     }
-    cout <<std::dec<< endl;
+    cout << std::dec << endl;
 }
 
-#define check(w,r)\
+#define check(w, r)\
     if(r<0){\
         w = false;\
         if(cok==false && sok==false){\
             break;\
         }\
     }
+
+    static int num=0;
+
 void data_copy(int c, int s) {
-    bool cok=true;
-    bool sok=true;
-
-    #define checkbreak  if(cok == false && sok==false) break;
-
+    bool cok = true;
+    bool sok = true;
+    cout<<"all socks"<<num<<endl;
+#define checkbreak  if(cok == false || sok==false) break;
     int ret;
     byte buff[1024];
     fd_set fd_read;
-    struct timeval time_out = {0, 1000000};
+    struct timespec time_out;
     while (true) {
         FD_ZERO(&fd_read);
         FD_SET(c, &fd_read);
         FD_SET(s, &fd_read);
 
-        time_out = {0, 1000000};
-        ret = select((c > s ? c : s) + 1, &fd_read, NULL, NULL, &time_out);
+        time_out.tv_sec = 1;
+        time_out.tv_nsec = 0;
+        ret = pselect((c > s ? c : s) + 1, &fd_read, NULL, NULL, &time_out,NULL);
 
         if (-1 == ret) {
             break;
@@ -56,7 +58,6 @@ void data_copy(int c, int s) {
             continue;
         }
 
-        // todo 拆分
         if (FD_ISSET(c, &fd_read)) {
             ret = recv(c, buff, 1024, 0);
             if (ret > 0) {

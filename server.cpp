@@ -31,6 +31,9 @@ void deal_simage(int c) {
 
     if(my_aesgcm256_decrypt(buff+16, 44, des, des_len, key, buff)<0){
         cout<<"A bad request, cant decrypt data !"<<endl;
+        pbytes(buff+16,44);
+        pbytes(buff,12);
+        pbytes(key,32);
     }else{
         cout<<"A new request accept!"<<endl;
         uint64_t t = 0;
@@ -80,6 +83,7 @@ void deal_simage(int c) {
                 dest_addr.sin_family = AF_INET;
                 dest_addr.sin_port = htons(port);
                 dest_addr.sin_addr.s_addr = inet_addr(ip_addr);
+                freeaddrinfo(res);
                 connect(sockfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
                 data_copy(c, sockfd);
             }

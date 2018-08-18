@@ -9,3 +9,5 @@ add_executable(simages server.cpp crypt.cpp crypt.h utils.cpp utils.h)
 
 TARGET_LINK_LIBRARIES(simagec pthread sodium)
 TARGET_LINK_LIBRARIES(simages pthread sodium)
+
+add_definitions(-Wall)

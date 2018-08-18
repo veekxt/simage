@@ -97,12 +97,10 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     send(sfd,des,des_len,0);
 
     data_copy(cfd,sfd);
-
 }
 
 void deal_socks5(int cfd) {
     byte buff[8192];
-    char ip_addr[128];
     ssize_t done = recv(cfd, buff, 3, 0);
     ssize_t send_done;
     if (done <= 0) {
