@@ -10,77 +10,94 @@
 #include <sys/select.h>
 #include <ctime>
 #include <csignal>
+#include "crypt.h"
+#include "utils.h"
+#include <vector>
 
 using std::byte;
+using std::vector;
 using std::cout;
 using std::cin;
 using std::endl;
 
-int num = 0;
 
-void pbytes(byte bs[], int len) {
-    for (int i = 0; i < len; i++) {
+void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, char *addr) {
+    struct sockaddr_in dest_addr; /* 目的地址*/
+    int sfd = socket(AF_INET, SOCK_STREAM, 0); /* 错误检查 */
+    dest_addr.sin_family = AF_INET; /* host byte order */
+    dest_addr.sin_port = htons(44229); /* short, network byte order */
+    dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    connect(sfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
 
-        cout << std::hex << (int) bs[i] << " ";
-    }
-    cout << endl;
-}
+    const int NONCE_LEN = 16;
+    const int USER_LEN = 16;
+    const int NONCE_REAL_LEN = 12;
+    const int KEY_LEN = 32;
 
-void pbytess(byte bs[], int len) {
-    for (int i = 0; i < len; i++) {
-        cout << (char) bs[i];
-    }
-    cout << endl;
-}
-
-void data_copy(int c, int s) {
-    int done = 0;
-    int ret;
     byte buff[1024];
-    fd_set fd_read;
-    struct timeval time_out={0, 1000000};
-    while (true) {
-        FD_ZERO(&fd_read);
-        FD_SET(c, &fd_read);
-        FD_SET(s, &fd_read);
+    byte des[1024];
+    int des_len;
+    int cur = 0;
 
-        time_out={0, 1000000};
-        ret = select((c > s ? c : s) + 1, &fd_read, NULL, NULL, &time_out);
+    byte nonce[NONCE_LEN];
+    randombytes_buf(nonce, NONCE_LEN);
+    send(sfd, nonce, NONCE_LEN, 0);
 
-        if (-1 == ret) {
-            break;
-        } else if (0 == ret) {
-            continue;
-        }
+    byte key[KEY_LEN];
+    byte user[USER_LEN];
+    byte timestamp[8];
+    byte rand[4];
 
-        if (FD_ISSET(c, &fd_read)) {
-            ret = recv(c, buff, 1024, 0);
-            if (ret > 0) {
-                ret = send(s, buff, ret, 0);
-                if (ret == -1) {
-                    break;
-                }
-            } else if (ret == 0) {
-                break;
-            } else {
-                break;
-            }
-        } else if (FD_ISSET(s, &fd_read)) {
-            ret = recv(s, buff, 1024, 0);
-            if (ret > 0) {
-                ret = send(c, buff, ret, 0);
-                if (ret == -1) {
-                    break;
-                }
-            } else if (ret == 0) {
-                break;
-            } else {
-                break;
-            }
-        }
-    }
-    close(c);
-    close(s);
+    crypto_generichash((unsigned char *) key, KEY_LEN,
+                       (unsigned char *) "for test string", 15,
+                       nullptr, 0);
+
+    crypto_generichash((unsigned char *) user, USER_LEN,
+                       (unsigned char *) "for test string", 15,
+                       nullptr, 0);
+    g_insert(buff, cur, user, USER_LEN);
+
+    uint64_t t = get_timestamp();
+    int64_byte(timestamp, t);
+
+    g_insert(buff, cur, timestamp, 8);
+
+    randombytes_buf(rand, 4);
+    g_insert(buff, cur, rand, 4);
+
+    my_aesgcm256_crypt(buff, cur, des, des_len, key, nonce);
+
+    send(sfd, des, des_len, 0);
+
+    buff[0] = byte(1);
+    buff[1] = byte(0);
+    buff[2] = byte(0);
+    buff[3] = byte(cmd);
+    buff[4] = byte(port >> 8);
+    buff[5] = byte(port);
+    buff[6] = byte(addr_type);
+    buff[7] = byte(addr_len);
+    cur = 8;
+    g_insert(buff, cur, addr, addr_len);
+
+    buff[cur] = byte(0);
+
+    nonce[8] = rand[0];
+    nonce[9] = rand[1];
+    nonce[10] = rand[2];
+    nonce[11] = rand[3];
+
+    my_aesgcm256_crypt(buff, 8, des, des_len, key, nonce);
+    send(sfd, des, des_len, 0);
+
+    nonce[11] = byte(int(nonce[11]) + 1);
+
+    my_aesgcm256_crypt(buff+8, addr_len, des, des_len, key, nonce);
+
+    send(sfd,des,des_len,0);
+
+    data_copy(cfd,sfd);
+
 }
 
 void deal_socks5(int cfd) {
@@ -109,8 +126,9 @@ void deal_socks5(int cfd) {
         close(cfd);
         return;
     } else {
+        int cmd = int(buff[1]);
         int hand = 0;
-        size_t addr_type = (size_t) buff[3];
+        int addr_type = (int) buff[3];
 
         // todo switch
         done = recv(cfd, buff + hand, 1, 0);
@@ -129,16 +147,10 @@ void deal_socks5(int cfd) {
             return;
         }
         (buff + hand)[addr_len] = (byte) 0;
-        struct addrinfo *res = {};
-        struct addrinfo hint = {};
-        hint.ai_family = AF_UNSPEC;
-        getaddrinfo((char *) buff + hand, NULL, &hint, &res);
+        byte addr[128];
+        int tmp_c = 0 ;
+        g_insert(addr,tmp_c,(buff + hand),addr_len);
 
-        struct sockaddr_in *in;
-
-        in = (struct sockaddr_in *) (res->ai_addr);
-        //int port = ntohs(in->sin_port);
-        inet_ntop(AF_INET, &in->sin_addr, ip_addr, sizeof(ip_addr));
         hand += done;
 
         done = recv(cfd, (buff + hand), 2, 0);
@@ -148,16 +160,7 @@ void deal_socks5(int cfd) {
             return;
         }
         int port = (int) (buff + hand)[1] | (int) (buff + hand)[0] << 8;
-
-        struct sockaddr_in dest_addr; /* 目的地址*/
-        int sockfd = socket(AF_INET, SOCK_STREAM, 0); /* 错误检查 */
-        dest_addr.sin_family = AF_INET; /* host byte order */
-        dest_addr.sin_port = htons(port); /* short, network byte order */
-        dest_addr.sin_addr.s_addr = inet_addr(ip_addr);
-
         hand += done;
-
-        connect(sockfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
 
         byte tmp[4] = {byte(5), byte(0), byte(0), byte(3)};
 
@@ -173,10 +176,7 @@ void deal_socks5(int cfd) {
             close(cfd);
             return;
         }
-        //fcntl(sockfd, F_SETFL, fcntl(sockfd, F_GETFL, 0) | O_NONBLOCK);
-        //fcntl(cfd, F_SETFL, fcntl(cfd, F_GETFL, 0) | O_NONBLOCK);
-        freeaddrinfo(res);
-        data_copy(cfd, sockfd);
+        connect_remote(cfd, cmd, port, addr_type, addr_len, (char *)addr);
     }
 }
 
@@ -204,6 +204,11 @@ void init_socks5() {
 
 int main() {
     signal(SIGPIPE, SIG_IGN);
+    sodium_init();
+    if (crypto_aead_aes256gcm_is_available() == 0) {
+        abort();
+    }
+    cout << "Start Client> port 44228" << endl;
     init_socks5();
     return 0;
 }
