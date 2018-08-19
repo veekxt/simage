@@ -15,6 +15,7 @@
 #include <vector>
 #include <cstring>
 
+
 using std::byte;
 using std::vector;
 using std::cout;
@@ -22,12 +23,12 @@ using std::cin;
 using std::endl;
 
 
-void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, char *addr) {
-    struct sockaddr_in dest_addr; /* 目的地址*/
-    int sfd = socket(AF_INET, SOCK_STREAM, 0); /* 错误检查 */
-    dest_addr.sin_family = AF_INET; /* host byte order */
-    dest_addr.sin_port = htons(44229); /* short, network byte order */
-    dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, char *addr, char *target, int port_t) {
+    struct sockaddr_in dest_addr;
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(port_t);
+    dest_addr.sin_addr.s_addr = inet_addr(target);
     connect(sfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
 
     const int NONCE_LEN = 16;
@@ -53,12 +54,12 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     byte rand[4];
 
     crypto_generichash((unsigned char *) user, USER_LEN,
-                       (unsigned char *) "for test string", 15,
+                       (unsigned char *) g_key, 32,
                        nullptr, 0);
     g_insert(buff, cur, user, USER_LEN);
 
     uint64_t t = get_timestamp();
-    int2byte(timestamp, t,8);
+    int2byte(timestamp, t, 8);
 
     g_insert(buff, cur, timestamp, 8);
 
@@ -70,11 +71,11 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     send(sfd, des, des_len, 0);
 
     crypto_generichash((unsigned char *) de_nonce, 16,
-                       (unsigned char *) (des+8), 16,
+                       (unsigned char *) (des + 8), 16,
                        nullptr, 0);
 
     crypto_generichash((unsigned char *) en_nonce, 16,
-                       (unsigned char *) (des+16), 16,
+                       (unsigned char *) (des + 16), 16,
                        nullptr, 0);
 
     buff[0] = byte(1);
@@ -100,19 +101,16 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
 
     nonce[11] = byte(int(nonce[11]) + 1);
 
-    my_aesgcm256_crypt(buff+8, addr_len, des, des_len, g_key, nonce);
+    my_aesgcm256_crypt(buff + 8, addr_len, des, des_len, g_key, nonce);
 
-    send(sfd,des,des_len,0);
+    send(sfd, des, des_len, 0);
 
-    // data_copy(cfd,sfd); data_copy will not encrypt, not use it !!
-
-    data_copy_safe(cfd,sfd,en_nonce,de_nonce);
-
+    data_copy_safe(cfd, sfd, en_nonce, de_nonce);
 
 }
 
-void deal_socks5(int cfd) {
-    byte buff[8192];
+void deal_socks5(int cfd, char *target, int port_t) {
+    byte buff[2048];
     ssize_t done = recv(cfd, buff, 3, 0);
     ssize_t send_done;
     if (done <= 0) {
@@ -158,8 +156,8 @@ void deal_socks5(int cfd) {
         }
         (buff + hand)[addr_len] = (byte) 0;
         byte addr[128];
-        int tmp_c = 0 ;
-        g_insert(addr,tmp_c,(buff + hand),addr_len);
+        int tmp_c = 0;
+        g_insert(addr, tmp_c, (buff + hand), addr_len);
 
         hand += done;
 
@@ -186,21 +184,27 @@ void deal_socks5(int cfd) {
             close(cfd);
             return;
         }
-        connect_remote(cfd, cmd, port, addr_type, addr_len, (char *)addr);
+        connect_remote(cfd, cmd, port, addr_type, addr_len, (char *) addr, target, port_t);
     }
 }
 
 
-int main_client(int port) {
+int main_client(int port, int port_t, char *target) {
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
     sin.sin_port = htons(port);
-    bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in));
-    listen(lfd, 32);
+    if (bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in)) < 0) {
+        cout << "Cant bind to port " << port << endl;
+        exit(-1);
+    }
+    if (listen(lfd, 32) < 0) {
+        cout << "Cant listen to port " << port << endl;
+        exit(-1);
+    }
     bool stop_accept = false;
-    cout<<"simage client, listen port "<<port<<endl;
+    cout << "simage client, listen port " << port << endl;
     while (!stop_accept) {
         struct sockaddr_in cin;
         socklen_t len = sizeof(cin);
@@ -208,7 +212,7 @@ int main_client(int port) {
         if (cfd < 0) {
             cout << "accept error!";
         } else {
-            std::thread t(deal_socks5, cfd);
+            std::thread t(deal_socks5, cfd, target, port_t);
             t.detach();
         }
     }

@@ -44,65 +44,6 @@ void del_pre(T s, int n) {
     }
 }
 
-void data_copy(int c, int s) {
-    bool cok = true;
-    bool sok = true;
-#define checkbreak  if(cok == false || sok==false) break;
-    int ret;
-    byte buff[1024];
-    fd_set fd_read;
-    struct timespec time_out;
-    while (true) {
-        FD_ZERO(&fd_read);
-        FD_SET(c, &fd_read);
-        FD_SET(s, &fd_read);
-
-        time_out.tv_sec = 1;
-        time_out.tv_nsec = 0;
-        ret = pselect((c > s ? c : s) + 1, &fd_read, NULL, NULL, &time_out, NULL);
-
-        if (-1 == ret) {
-            break;
-        } else if (0 == ret) {
-            continue;
-        }
-
-        if (FD_ISSET(c, &fd_read)) {
-            ret = recv(c, buff, 1024, 0);
-            if (ret > 0) {
-                ret = send(s, buff, ret, 0);
-                if (ret == -1) {
-                    sok = false;
-                    checkbreak
-                }
-            } else if (ret == 0) {
-                cok = false;
-                checkbreak
-            } else {
-                cok = false;
-                checkbreak
-            }
-        } else if (FD_ISSET(s, &fd_read)) {
-            ret = recv(s, buff, 1024, 0);
-            if (ret > 0) {
-                ret = send(c, buff, ret, 0);
-                if (ret == -1) {
-                    cok = false;
-                    checkbreak
-                }
-            } else if (ret == 0) {
-                sok = false;
-                checkbreak
-            } else {
-                sok = false;
-                checkbreak
-            }
-        }
-    }
-    close(c);
-    close(s);
-}
-
 int send_safe(int cfd, byte *buff, int buff_size, byte en_nonce[], int &count) {
     int ret = 0;
     byte data_len[2];
@@ -111,7 +52,7 @@ int send_safe(int cfd, byte *buff, int buff_size, byte en_nonce[], int &count) {
 
     int2byte(nonce + 7, count, 5);
 
-    byte des[buff_size + 16];
+    byte *des =new byte[buff_size + 16];
     int des_len = 0;
 
 
@@ -120,7 +61,6 @@ int send_safe(int cfd, byte *buff, int buff_size, byte en_nonce[], int &count) {
     my_aesgcm256_crypt(data_len, 2, des, des_len, g_key, nonce);
 
     ret = send(cfd, des, des_len, 0);
-
     if (ret <= 0) return ret;
 
     count += 1;
@@ -131,14 +71,18 @@ int send_safe(int cfd, byte *buff, int buff_size, byte en_nonce[], int &count) {
 
     ret = send(cfd, des, des_len, 0);
 
+    count += 1;
+
     if (ret <= 0) return ret;
+
+    delete []des;
     return ret;
 }
 
 int recv_safe_send(int cfd, byte *buff, int buff_size, byte de_nonce[], int &count) {
     int ret = 0;
     byte data_len[2];
-    byte buff_r[2080];
+    byte *buff_r = new byte[8192*2];
     int len_r;
 
     byte nonce[16];
@@ -155,6 +99,7 @@ int recv_safe_send(int cfd, byte *buff, int buff_size, byte de_nonce[], int &cou
 
     send(cfd, buff_r, len_r, 0);
     count += 1;
+    delete [] buff_r;
 }
 
 
@@ -178,21 +123,20 @@ int decrypt_len(byte recvs[], int len_decrypt_len, byte de_nonce[], int &recv_co
     }
 }
 
+#define checkbreak  if(cok == false || sok==false) break;
 void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
     bool cok = true;
     bool sok = true;
     int send_count = 0;
     int recv_count = 0;
 
-    const int REV_SIZE = 2048;
-    byte recvs[3200];
-
+    const int REV_SIZE = 8192;
+    byte *recvs = new byte[8192*2];
+    byte *buff= new byte[8192*2];
     int len_recvs = 0;
     int len_sreq = 0;
-
-#define checkbreak  if(cok == false || sok==false) break;
     int ret;
-    byte buff[3200];
+
     fd_set fd_read;
     struct timespec time_out;
     while (true) {
@@ -217,9 +161,7 @@ void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
                 if (ret == -1) {
                     sok = false;
                     checkbreak
-                } else {
-                    send_count += 1;
-                }
+                } else ;
             } else if (ret == 0) {
                 cok = false;
                 checkbreak
@@ -240,6 +182,7 @@ void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
                         ret -= need;
                         len_sreq = decrypt_len(recvs, 18, de_nonce, recv_count);
                     } else {
+                        g_insert(recvs, len_recvs, bufft, ret);
                         // wait next recive
                         continue;
                     }
@@ -268,13 +211,15 @@ void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
     }
     close(c);
     close(s);
+    delete []recvs;
+    delete []buff;
 }
 
-int getopt_from(int &port, char *key, int &is_client, int argc, char *argv[])
+int getopt_from(int &port, char *key, int &is_client, char *target, int argc, char *argv[])
 {
     int opt;
 
-    while((opt = getopt(argc, argv, "scp:k:")) != -1) {
+    while((opt = getopt(argc, argv, "scp:k:t:")) != -1) {
         switch (opt) {
             case 's':
                 is_client |= 2 ;
@@ -288,8 +233,11 @@ int getopt_from(int &port, char *key, int &is_client, int argc, char *argv[])
             case 'k':
                 strcpy(key,optarg);
                 break;
+            case 't':
+                strcpy(target,optarg);
+                break;
             default:
-                fprintf(stderr, "%c usage: %s -[s|c][-p port] [-k key]\n", opt,argv[0]);
+                fprintf(stderr, "usage: %s -[s|c][-p port] [-k key]\n",argv[0]);
                 exit(EXIT_FAILURE);
         }
     }

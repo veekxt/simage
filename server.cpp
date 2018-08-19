@@ -18,12 +18,9 @@ using std::cin;
 using std::endl;
 
 void deal_simage(int c) {
-    int ret;
     byte buff[1024];
     byte des[1024];
     int cur = 0, des_len = 0;
-    fd_set fd_read;
-    struct timeval time_out = {0, 1000000};
     recv(c, buff, 60, 0);
 
     byte en_nonce[16];
@@ -41,6 +38,7 @@ void deal_simage(int c) {
         cout<<"A bad request, cant decrypt data !"<<endl;
         pbytes(buff+16,44);
         pbytes(buff,12);
+        pbytes(g_key,32);
     }else{
         //cout<<"A new request accept!"<<endl;
         uint64_t t = 0;
@@ -87,8 +85,7 @@ void deal_simage(int c) {
                 dest_addr.sin_addr.s_addr = inet_addr(ip_addr);
                 freeaddrinfo(res);
                 connect(sockfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
-                // data_copy(sockfd,c); data_copy will not encrypt, not use it !!
-                cout<<"connected to "<<(char *)des<<"#"<<ip_addr<<":"<<port<<endl;
+                cout<<"will connected to "<<(char *)des<<"#"<<ip_addr<<":"<<port<<endl;
                 data_copy_safe(sockfd,c,en_nonce,de_nonce);
             }
         }
@@ -102,8 +99,14 @@ int main_server(int port) {
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
     sin.sin_port = htons(port);
-    bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in));
-    listen(lfd, 32);
+    if(bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in))<0){
+        cout<<"Cant bind to port "<<port<<endl;
+        exit(-1);
+    }
+    if(listen(lfd, 32) < 0){
+        cout<<"Cant listen to port "<<port<<endl;
+        exit(-1);
+    }
     bool stop_accept = false;
     cout<<"simage server, listen port "<<port<<endl;
     while (!stop_accept) {
