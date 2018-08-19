@@ -47,5 +47,6 @@ template<typename T>
 void del_pre(T s, int n);
 void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]);
 int getopt_from(int &port, char *key, int &is_client, char *, int argc, char *argv[]);
+int require_n(int cfd, byte *buff, int n);
 
 #endif //SIMAGE_UTILS_H

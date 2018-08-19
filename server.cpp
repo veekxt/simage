@@ -21,7 +21,8 @@ void deal_simage(int c) {
     byte buff[1024];
     byte des[1024];
     int cur = 0, des_len = 0;
-    recv(c, buff, 60, 0);
+
+    require_n(c, buff, 60);
 
     byte en_nonce[16];
     byte de_nonce[16];
@@ -54,7 +55,7 @@ void deal_simage(int c) {
         nonce[9]=des[25];
         nonce[10]=des[26];
         nonce[11]=des[27];
-        recv(c, buff, 24, 0);
+        require_n(c, buff, 24);
         if(my_aesgcm256_decrypt(buff, 24, des, des_len, g_key, nonce)<0){
             cout<<"A bad request, cant decrypt data[cmd] !"<<endl;
         }else{
@@ -63,7 +64,7 @@ void deal_simage(int c) {
 
             int port = ((int)des[4])<<8 | int(des[5]);
 
-            recv(c, buff, addr_len+16, 0);
+            require_n(c, buff, addr_len+16);
             if(my_aesgcm256_decrypt(buff, addr_len+16, des, des_len, g_key, nonce)<0){
                 cout<<"A bad request, cant decrypt data[addr] !"<<addr_len<<endl;
             }else{

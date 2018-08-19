@@ -40,7 +40,6 @@ int main(int argc, char **argv) {
         t1.join();
         t2.join();
     }
-
     if (is_client & 1) {
         std::thread t1(main_client, port, port_t, (char *)target);
         t1.join();

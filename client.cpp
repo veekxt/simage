@@ -29,6 +29,7 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(port_t);
     dest_addr.sin_addr.s_addr = inet_addr(target);
+
     connect(sfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
 
     const int NONCE_LEN = 16;
@@ -204,7 +205,7 @@ int main_client(int port, int port_t, char *target) {
         exit(-1);
     }
     bool stop_accept = false;
-    cout << "simage client, listen port " << port << endl;
+    cout << "simage client, listen port " << port <<"  <====>  "<<target<<":"<<port_t<< endl;
     while (!stop_accept) {
         struct sockaddr_in cin;
         socklen_t len = sizeof(cin);
