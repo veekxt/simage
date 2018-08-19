@@ -10,6 +10,7 @@
 #include "utils.h"
 #include <sodium.h>
 #include <netdb.h>
+#include <csignal>
 
 using std::byte;
 using std::cout;
@@ -24,37 +25,39 @@ void deal_simage(int c) {
     fd_set fd_read;
     struct timeval time_out = {0, 1000000};
     recv(c, buff, 60, 0);
-    byte key[32];
-    crypto_generichash((unsigned char *) key, 32,
-                       (unsigned char *) "for test string", 15,
+
+    byte en_nonce[16];
+    byte de_nonce[16];
+
+    crypto_generichash((unsigned char *) en_nonce, 16,
+                       (unsigned char *) (buff+24), 16,
                        nullptr, 0);
 
-    if(my_aesgcm256_decrypt(buff+16, 44, des, des_len, key, buff)<0){
+    crypto_generichash((unsigned char *) de_nonce, 16,
+                       (unsigned char *) (buff+32), 16,
+                       nullptr, 0);
+
+    if(my_aesgcm256_decrypt(buff+16, 44, des, des_len, g_key, buff)<0){
         cout<<"A bad request, cant decrypt data !"<<endl;
         pbytes(buff+16,44);
         pbytes(buff,12);
-        pbytes(key,32);
     }else{
-        cout<<"A new request accept!"<<endl;
+        //cout<<"A new request accept!"<<endl;
         uint64_t t = 0;
-        byte_int64(des+16,t);
-        byte user[16];
-        crypto_generichash((unsigned char *) user, 16,
-                           (unsigned char *) "for test string", 15,
-                           nullptr, 0);
+        byte2int(des+16,t,8);
 
-        byte nonce[12];
+        byte nonce[16];
+
         cur=0;
+
         g_insert(nonce,cur,buff,16);
 
         nonce[8]=des[24];
         nonce[9]=des[25];
         nonce[10]=des[26];
         nonce[11]=des[27];
-
         recv(c, buff, 24, 0);
-
-        if(my_aesgcm256_decrypt(buff, 24, des, des_len, key, nonce)<0){
+        if(my_aesgcm256_decrypt(buff, 24, des, des_len, g_key, nonce)<0){
             cout<<"A bad request, cant decrypt data[cmd] !"<<endl;
         }else{
             size_t addr_len = size_t(des[7]);
@@ -63,11 +66,10 @@ void deal_simage(int c) {
             int port = ((int)des[4])<<8 | int(des[5]);
 
             recv(c, buff, addr_len+16, 0);
-            if(my_aesgcm256_decrypt(buff, addr_len+16, des, des_len, key, nonce)<0){
+            if(my_aesgcm256_decrypt(buff, addr_len+16, des, des_len, g_key, nonce)<0){
                 cout<<"A bad request, cant decrypt data[addr] !"<<addr_len<<endl;
             }else{
                 des[des_len] = byte(0);
-
                 char ip_addr[1024];
                 struct addrinfo *res = {};
                 struct addrinfo hint = {};
@@ -85,21 +87,25 @@ void deal_simage(int c) {
                 dest_addr.sin_addr.s_addr = inet_addr(ip_addr);
                 freeaddrinfo(res);
                 connect(sockfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
-                data_copy(c, sockfd);
+                // data_copy(sockfd,c); data_copy will not encrypt, not use it !!
+                cout<<"connected to "<<(char *)des<<"#"<<ip_addr<<":"<<port<<endl;
+                data_copy_safe(sockfd,c,en_nonce,de_nonce);
             }
         }
     }
 }
 
-void init_simage() {
+
+int main_server(int port) {
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons(44229);
+    sin.sin_port = htons(port);
     bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in));
     listen(lfd, 32);
     bool stop_accept = false;
+    cout<<"simage server, listen port "<<port<<endl;
     while (!stop_accept) {
         struct sockaddr_in cin;
         socklen_t len = sizeof(cin);
@@ -111,10 +117,5 @@ void init_simage() {
             t.detach();
         }
     }
-}
-
-int main() {
-    sodium_init();
-    init_simage();
     return 0;
 }

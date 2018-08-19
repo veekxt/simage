@@ -13,6 +13,7 @@
 #include "crypt.h"
 #include "utils.h"
 #include <vector>
+#include <cstring>
 
 using std::byte;
 using std::vector;
@@ -39,18 +40,17 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     int des_len;
     int cur = 0;
 
+    byte en_nonce[16];
+    byte de_nonce[16];
+
     byte nonce[NONCE_LEN];
     randombytes_buf(nonce, NONCE_LEN);
     send(sfd, nonce, NONCE_LEN, 0);
 
-    byte key[KEY_LEN];
+
     byte user[USER_LEN];
     byte timestamp[8];
     byte rand[4];
-
-    crypto_generichash((unsigned char *) key, KEY_LEN,
-                       (unsigned char *) "for test string", 15,
-                       nullptr, 0);
 
     crypto_generichash((unsigned char *) user, USER_LEN,
                        (unsigned char *) "for test string", 15,
@@ -58,16 +58,24 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     g_insert(buff, cur, user, USER_LEN);
 
     uint64_t t = get_timestamp();
-    int64_byte(timestamp, t);
+    int2byte(timestamp, t,8);
 
     g_insert(buff, cur, timestamp, 8);
 
     randombytes_buf(rand, 4);
     g_insert(buff, cur, rand, 4);
 
-    my_aesgcm256_crypt(buff, cur, des, des_len, key, nonce);
+    my_aesgcm256_crypt(buff, cur, des, des_len, g_key, nonce);
 
     send(sfd, des, des_len, 0);
+
+    crypto_generichash((unsigned char *) de_nonce, 16,
+                       (unsigned char *) (des+8), 16,
+                       nullptr, 0);
+
+    crypto_generichash((unsigned char *) en_nonce, 16,
+                       (unsigned char *) (des+16), 16,
+                       nullptr, 0);
 
     buff[0] = byte(1);
     buff[1] = byte(0);
@@ -87,16 +95,20 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     nonce[10] = rand[2];
     nonce[11] = rand[3];
 
-    my_aesgcm256_crypt(buff, 8, des, des_len, key, nonce);
+    my_aesgcm256_crypt(buff, 8, des, des_len, g_key, nonce);
     send(sfd, des, des_len, 0);
 
     nonce[11] = byte(int(nonce[11]) + 1);
 
-    my_aesgcm256_crypt(buff+8, addr_len, des, des_len, key, nonce);
+    my_aesgcm256_crypt(buff+8, addr_len, des, des_len, g_key, nonce);
 
     send(sfd,des,des_len,0);
 
-    data_copy(cfd,sfd);
+    // data_copy(cfd,sfd); data_copy will not encrypt, not use it !!
+
+    data_copy_safe(cfd,sfd,en_nonce,de_nonce);
+
+
 }
 
 void deal_socks5(int cfd) {
@@ -178,15 +190,17 @@ void deal_socks5(int cfd) {
     }
 }
 
-void init_socks5() {
+
+int main_client(int port) {
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
-    sin.sin_port = htons(44228);
+    sin.sin_port = htons(port);
     bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in));
     listen(lfd, 32);
     bool stop_accept = false;
+    cout<<"simage client, listen port "<<port<<endl;
     while (!stop_accept) {
         struct sockaddr_in cin;
         socklen_t len = sizeof(cin);
@@ -198,15 +212,5 @@ void init_socks5() {
             t.detach();
         }
     }
-}
-
-int main() {
-    signal(SIGPIPE, SIG_IGN);
-    sodium_init();
-    if (crypto_aead_aes256gcm_is_available() == 0) {
-        abort();
-    }
-    cout << "Start Client> port 44228" << endl;
-    init_socks5();
     return 0;
 }
