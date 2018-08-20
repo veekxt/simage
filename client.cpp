@@ -24,11 +24,26 @@ using std::endl;
 
 
 void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, char *addr, char *target, int port_t) {
+
+    char ip_addr[512];
+    struct addrinfo *res = {};
+    struct addrinfo hint = {};
+    hint.ai_family = AF_UNSPEC;
+    if(getaddrinfo(target, NULL, &hint, &res)!=0){
+        cout<<"cant resolve name: "<<target<<endl;
+        return;
+    }
+
+    struct sockaddr_in *in;
+    in = (struct sockaddr_in *) (res->ai_addr);
+    inet_ntop(AF_INET, &in->sin_addr, ip_addr, sizeof(ip_addr));
+
     struct sockaddr_in dest_addr;
     int sfd = socket(AF_INET, SOCK_STREAM, 0);
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(port_t);
-    dest_addr.sin_addr.s_addr = inet_addr(target);
+
+    dest_addr.sin_addr.s_addr = inet_addr(ip_addr);
 
     connect(sfd, (struct sockaddr *) &dest_addr, sizeof(struct sockaddr));
 
@@ -87,7 +102,10 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     buff[5] = byte(port);
     buff[6] = byte(addr_type);
     buff[7] = byte(addr_len);
-    cur = 8;
+    int rand2 = randombytes_uniform(13)+1;
+    buff[8] = byte(rand2);
+
+    cur = 9;
     g_insert(buff, cur, addr, addr_len);
 
     buff[cur] = byte(0);
@@ -97,14 +115,20 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     nonce[10] = rand[2];
     nonce[11] = rand[3];
 
-    my_aesgcm256_crypt(buff, 8, des, des_len, g_key, nonce);
+    my_aesgcm256_crypt(buff, 9, des, des_len, g_key, nonce);
     send(sfd, des, des_len, 0);
 
     nonce[11] = byte(int(nonce[11]) + 1);
 
-    my_aesgcm256_crypt(buff + 8, addr_len, des, des_len, g_key, nonce);
+    my_aesgcm256_crypt(buff + 9, addr_len, des, des_len, g_key, nonce);
 
     send(sfd, des, des_len, 0);
+
+    byte rand2_buff[rand2];
+
+    randombytes_buf(rand2_buff, rand2);
+    cout<<rand2<<endl;
+    send(sfd, rand2_buff, rand2, 0);
 
     data_copy_safe(cfd, sfd, en_nonce, de_nonce);
 
@@ -196,6 +220,8 @@ int main_client(int port, int port_t, char *target) {
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = INADDR_ANY;
     sin.sin_port = htons(port);
+    int tmp=1;
+    setsockopt(lfd,SOL_SOCKET,SO_REUSEADDR,&tmp,sizeof(tmp));
     if (bind(lfd, (struct sockaddr *) &sin, sizeof(struct sockaddr_in)) < 0) {
         cout << "Cant bind to port " << port << endl;
         exit(-1);

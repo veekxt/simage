@@ -2,6 +2,7 @@
 #include <csignal>
 #include <sodium.h>
 #include <thread>
+#include <execinfo.h>
 #include "simage.h"
 #include "utils.h"
 

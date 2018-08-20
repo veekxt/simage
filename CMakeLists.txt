@@ -7,4 +7,4 @@ add_executable(simage main.cpp server.cpp client.cpp crypt.cpp crypt.h utils.cpp
 
 TARGET_LINK_LIBRARIES(simage pthread libsodium.a )
 
-add_definitions(-Wall)
+add_definitions(-Wall -g -rdynamic)

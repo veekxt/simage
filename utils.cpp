@@ -6,6 +6,7 @@
 #include <sodium.h>
 #include <cstring>
 
+
 byte g_key[128];
 
 uint64_t get_timestamp(void) {
@@ -78,7 +79,7 @@ int send_safe(int cfd, byte *buff, int buff_size, byte en_nonce[], int &count) {
 }
 
 int recv_safe_send(int cfd, byte *buff, int buff_size, byte de_nonce[], int &count) {
-    byte *buff_r = new byte[8192 * 2];
+    byte *buff_r = new byte[4096 * 2];
     int len_r;
 
     byte nonce[16];
@@ -126,30 +127,27 @@ void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
     int send_count = 0;
     int recv_count = 0;
 
-    const int REV_SIZE = 8192;
-    byte *recvs = new byte[8192 * 2];
-    byte *buff = new byte[8192 * 2];
+    const int REV_SIZE = 4096;
+    byte *recvs = new byte[4096 * 2];
+    byte *buff = new byte[4096 * 2];
     int len_recvs = 0;
     int len_sreq = 0;
-    int ret;
+    int ret = 0;
 
     fd_set fd_read;
-    struct timespec time_out;
+    struct timespec time_out{1,0};
     while (true) {
         FD_ZERO(&fd_read);
+
         FD_SET(c, &fd_read);
         FD_SET(s, &fd_read);
 
-        time_out.tv_sec = 1;
-        time_out.tv_nsec = 0;
         ret = pselect((c > s ? c : s) + 1, &fd_read, NULL, NULL, &time_out, NULL);
-
         if (-1 == ret) {
             break;
         } else if (0 == ret) {
             continue;
         }
-
         if (FD_ISSET(c, &fd_read)) {
             ret = recv(c, buff, REV_SIZE, 0);
             if (ret > 0) {
@@ -166,6 +164,7 @@ void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
                 checkbreak
             }
         } else if (FD_ISSET(s, &fd_read)) {
+
             ret = recv(s, buff, REV_SIZE, 0);
             if (ret > 0) {
                 byte *bufft = buff;
@@ -183,7 +182,6 @@ void data_copy_safe(int c, int s, byte en_nonce[], byte de_nonce[]) {
                         continue;
                     }
                 }
-
                 if (ret + len_recvs - 18 >= len_sreq) {
                     int need = len_sreq - (len_recvs - 18);
                     g_insert(recvs, len_recvs, bufft, need);
@@ -244,6 +242,11 @@ int getopt_from(int &port, char *key, int &is_client, char *target, int argc, ch
 int require_n(int cfd, byte *buff, int n) {
     int ret = recv(cfd, buff, n, 0);
     if (ret > 0 && ret < n) {
-        ret = require_n(cfd, buff + ret, n - ret);
-    } else return ret;
+        ret += require_n(cfd, buff + ret, n - ret);
+        return ret;
+    }else if(ret <=0 ){
+        return ret;
+    }else{
+        return n;
+    }
 }
