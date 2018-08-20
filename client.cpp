@@ -127,7 +127,7 @@ void connect_remote(int cfd, int cmd, int port, int addr_type, int addr_len, cha
     byte rand2_buff[rand2];
 
     randombytes_buf(rand2_buff, rand2);
-    cout<<rand2<<endl;
+    
     send(sfd, rand2_buff, rand2, 0);
 
     data_copy_safe(cfd, sfd, en_nonce, de_nonce);
